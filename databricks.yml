@@ -1,0 +1,92 @@
+# AI Value Flywheel — Databricks Asset Bundle
+#
+# One-command deploy into YOUR workspace. The recommended path is:
+#
+#     python3 scripts/deploy.py
+#
+# which prompts for every variable below, builds the frontend, deploys, runs the
+# Unity Catalog GRANTs for the app's service principal, seeds Lakebase, and
+# starts the app. To drive the bundle directly instead:
+#
+#     databricks bundle deploy -t prod --var="warehouse_id=<id>" --var="atlas_catalog=<catalog>"
+#     databricks bundle run grid_atlas -t prod
+#
+# Prereqs: Databricks CLI >= 0.239, a serverless-enabled workspace (Lakebase +
+# Foundation Models), a SQL warehouse, and permission to create Apps and a
+# Lakebase (Autoscaling Postgres) project. Nothing environment-specific is baked
+# in — every value is a variable.
+bundle:
+  name: grid-atlas
+
+variables:
+  warehouse_id:
+    description: "SQL warehouse ID for system-table reads, UC discovery, and ai_query() enrichment (app SP gets CAN_USE)."
+  serving_endpoint:
+    description: "Foundation Model chat endpoint for the AI agents."
+    default: databricks-claude-sonnet-5
+  atlas_catalog:
+    description: "Unity Catalog the discovery layer writes inventory + enrichment staging into."
+    default: grid_ops_demo_catalog
+  atlas_schema:
+    description: "Schema inside atlas_catalog for the discovery layer."
+    default: grid_atlas_discovery
+  genie_space_id:
+    description: "Genie space ID over the portfolio mirror (optional; set after creating a space)."
+    default: ""
+  genie_mirror_catalog:
+    description: "Unity Catalog catalog the app may write the Genie mirror into."
+    default: grid_ops_demo_catalog
+  genie_mirror_schema:
+    description: "Schema for the Genie mirror tables."
+    default: grid_atlas
+  lakebase_project:
+    description: "Lakebase (Autoscaling Postgres) PROJECT id holding app state (see the note in resources)."
+    default: grid-atlas-pg
+  pg_database:
+    description: "Database inside the Lakebase project."
+    default: app
+  demo_mode:
+    description: "Enables the removable Demo Mode toggle + /api/demo/* endpoints. Ship 'off' to customers."
+    default: off
+
+resources:
+  apps:
+    grid_atlas:
+      name: grid-atlas
+      description: "Power & Utilities data + AI catalog: workspace discovery, use-case portfolio, value quantification, and dependency-sequenced roadmap."
+      source_code_path: ./
+      resources:
+        - name: sql-warehouse
+          description: "Warehouse for system tables, UC discovery, and ai_query() enrichment."
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        # NOTE: there is deliberately NO `database` app resource here.
+        #
+        # Lakebase exposes two related primitives that are not interchangeable:
+        # a `database` app-resource binds to a database INSTANCE (the
+        # `databricks database ...` API), whereas this app connects over plain
+        # Postgres to a PROJECT (`databricks postgres ...`) using PGHOST/PGUSER
+        # from app.yaml. Binding an instance we never connect to created a
+        # Postgres role that OAuth token auth then rejected — the app came up in
+        # demo mode with "External authorization failed".
+        #
+        # What the app actually needs is a role registered on the project branch
+        # with auth_method=LAKEBASE_OAUTH_V1 and identity_type=SERVICE_PRINCIPAL,
+        # which `scripts/deploy.py` creates. See INSTALL.md step 1.
+        - name: serving-endpoint
+          description: "Foundation Model endpoint backing the AI agents."
+          serving_endpoint:
+            name: ${var.serving_endpoint}
+            permission: CAN_QUERY
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/grid-atlas/dev
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/grid-atlas/prod
