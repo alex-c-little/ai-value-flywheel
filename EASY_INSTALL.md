@@ -1,10 +1,10 @@
 # AI Value Flywheel — Easy Install (portfolio-only, least privilege)
 
-This is the low-friction way to stand up the app for a customer. It keeps Lakebase
-(unchanged) but turns **live UC discovery OFF**, which removes the one grant that
-needs an **account admin**. The portfolio ships with 240 reference use cases, so the
-app is fully useful on day one; you can feed the customer's real estate later via the
-human-run extractor + Excel import.
+This is the low-friction way to stand up the app for a customer. It keeps Lakebase but
+turns **live UC discovery OFF**, which removes the one grant that needs an **account
+admin**. The portfolio ships with 240 reference use cases, so the app is fully useful on
+day one; you can feed the customer's real estate later via the human-run extractor +
+Excel import.
 
 ## One command
 
@@ -17,6 +17,31 @@ GENIE_MIRROR_CATALOG=<catalog-the-app-may-own-a-schema-in> \
 
 This runs `scripts/deploy.py --target prod --discovery off …`, then issues the explicit
 `databricks apps deploy grid-atlas` that the bundle step alone does not always create.
+
+## Lakebase is auto-created (no manual provisioning step)
+
+The installer **creates the Lakebase Postgres project for you** if it doesn't already
+exist (`databricks postgres create-project <lakebase_project>`). The new project comes with
+its `production` branch and `primary` endpoint, which is exactly what host resolution and
+the seed connect through. An existing project (or a legacy database instance) of the same
+name is reused as-is.
+
+- **The operator's identity must be able to provision Lakebase in the workspace.** If it
+  can't, the installer prints the real permission error and keeps going — ask a workspace
+  admin to create a Lakebase project with that name (default `grid-atlas-db`), then re-run
+  with `--no-create-lakebase`.
+- `--no-create-lakebase` on `scripts/deploy.py` skips auto-create (the project already
+  exists, or you can't provision one).
+- The Lakebase endpoint host is always resolved live from the workspace, never from a
+  previous run's cache — a stale host points the app at the wrong endpoint, token auth
+  fails, and the app silently drops into demo mode.
+
+## Installing into more than one workspace from the same clone
+
+The CLI caches bundle state per target, not per workspace, so the installer clears the
+local `.databricks/bundle/<target>` copy before each deploy and lets the CLI pull the
+authoritative state from the target workspace. Without that, a second workspace inherits
+the first one's app attributes (seen as `BudgetPolicy ... not found`).
 
 ## Grants the easy profile needs (and ONLY these)
 
@@ -64,7 +89,9 @@ SP OAuth token), and deliberately does **not** bind a native `database` app-reso
 Binding a database *instance* creates a Postgres role that OAuth token auth then rejects
 ("External authorization failed"). The AICOE apps independently use the **same** pattern
 and cite the same reasoning, so this is the correct approach, not extra complexity — it is
-left unchanged in the easy profile.
+left unchanged in the easy profile. Note the distinction: the installer now **creates** the
+instance (so its endpoint exists to connect to), but still does **not bind** it as an app
+`database` resource — creating is safe, binding is what broke OAuth.
 
 ## Turning discovery back on later
 

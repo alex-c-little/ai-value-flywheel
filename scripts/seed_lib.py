@@ -307,7 +307,8 @@ def load(cur, data, clean: bool):
                 effort_tshirt, priority_score, risk_tags, compliance_tags,
                 hypothesized_value_json, realized_value_amount, realized_value_json,
                 status_source, created_by, origin, in_portfolio)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (lower(title)) DO UPDATE SET title = EXCLUDED.title RETURNING id""",
             (u["title"], u["description"], lob_id.get(u["lob"]), u["sub_vertical"],
              u["stage"], phase, status, None, u["effort_tshirt"],  # category NULLed — was the parent's stale phase name; phase name is now derived
              u["priority_score"], u["risk_tags"], u["compliance_tags"],
@@ -340,6 +341,9 @@ def load(cur, data, clean: bool):
             n_ena += 1
 
     # 6) value assumptions (both modes)
+    # Ensure the unique arbiter for the ON CONFLICT (key) below exists (some schema
+    # versions create value_assumptions without it). Idempotent.
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS value_assumptions_key_uidx ON value_assumptions (key)")
     for a in data["value_assumptions"]:
         cur.execute(
             """INSERT INTO value_assumptions (key, label, value, unit, category)

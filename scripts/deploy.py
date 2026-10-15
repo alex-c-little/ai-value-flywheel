@@ -240,9 +240,10 @@ def write_config(settings: dict) -> None:
 
     bundle = ROOT / "databricks.yml"
     btext = bundle.read_text()
-    for key, value in (("atlas_catalog", settings["atlas_catalog"]),
-                       ("atlas_schema", settings["atlas_schema"]),
-                       ("serving_endpoint", settings["serving_endpoint"]),
+    # NOTE: atlas_catalog/atlas_schema are intentionally NOT edited here. They are
+    # unused when discovery is off, and the fragile default-line regex corrupted the
+    # YAML when their defaults were blank. They keep their databricks.yml defaults.
+    for key, value in (("serving_endpoint", settings["serving_endpoint"]),
                        ("genie_mirror_catalog", settings["genie_mirror_catalog"]),
                        ("genie_mirror_schema", settings["genie_mirror_schema"]),
                        ("lakebase_project", settings["lakebase_project"]),
@@ -286,17 +287,26 @@ def build_frontend(skip: bool) -> None:
 # ---------------------------------------------------------------------------
 # Step 5/6 — deploy + grants
 # ---------------------------------------------------------------------------
+def bundle_vars(settings: dict) -> list[str]:
+    """The `--var` overrides the bundle needs. These have NO defaults in databricks.yml,
+    so EVERY `databricks bundle ...` invocation (deploy AND run) must pass them — a bare
+    `bundle run` fails with "no value assigned to required variable warehouse_id"."""
+    keys = ("warehouse_id", "atlas_catalog", "atlas_schema", "serving_endpoint",
+            "genie_mirror_catalog", "genie_mirror_schema", "lakebase_project",
+            "pg_database", "demo_mode")
+    return [f"--var={k}={settings[k]}" for k in keys]
+
+
 def bundle_deploy(profile: str, target: str, settings: dict) -> None:
+    # The CLI keeps a local copy of bundle state per target, NOT per workspace. Deploying
+    # one clone to a second workspace reuses the first workspace's app attributes (e.g.
+    # its budget policy id -> "BudgetPolicy ... not found"). The authoritative state
+    # lives in the target workspace, and the CLI pulls it when no local copy exists.
+    local_state = ROOT / ".databricks" / "bundle" / target
+    if local_state.exists() and not DRY_RUN:
+        shutil.rmtree(local_state)
     run(["databricks", "bundle", "deploy", "-t", target, "-p", profile,
-         f"--var=warehouse_id={settings['warehouse_id']}",
-         f"--var=atlas_catalog={settings['atlas_catalog']}",
-         f"--var=atlas_schema={settings['atlas_schema']}",
-         f"--var=serving_endpoint={settings['serving_endpoint']}",
-         f"--var=genie_mirror_catalog={settings['genie_mirror_catalog']}",
-         f"--var=genie_mirror_schema={settings['genie_mirror_schema']}",
-         f"--var=lakebase_project={settings['lakebase_project']}",
-         f"--var=pg_database={settings['pg_database']}",
-         f"--var=demo_mode={settings['demo_mode']}"])
+         *bundle_vars(settings)])
     print(f"  {green('ok')} bundle deployed")
 
 
@@ -522,6 +532,56 @@ def lakebase_host(profile: str, instance: str, branch: str = "production",
         return None
 
 
+def ensure_lakebase_instance(profile: str, instance: str, *, capacity: str = "CU_1",
+                             create: bool = True, assume_yes: bool = False) -> bool:
+    """Ensure the Lakebase Postgres project the app connects to exists.
+
+    The app and the seed both reach Lakebase through the **project** API
+    (`projects/<name>/branches/production/endpoints/primary`), and the bundle binds no
+    `database` app resource. So an existing project is what counts; a legacy database
+    instance of the same name is accepted too. If neither exists, a project is created
+    (its default `production` branch + `primary` endpoint come with it).
+
+    Returns True if the project exists (or was created), False otherwise. On a
+    permission failure the real CLI error is printed, because "can this identity create
+    a Lakebase?" is precisely the signal an operator running the easy-install needs.
+    `capacity` is kept for CLI compatibility; autoscaling projects size themselves.
+    """
+    proj = run_json(["databricks", "postgres", "get-project", f"projects/{instance}",
+                     "-p", profile, "-o", "json"], check=False)
+    if proj and proj.get("name"):
+        print(f"  {green('ok')} Lakebase project {instance!r} exists")
+        return True
+    info = run_json(["databricks", "database", "get-database-instance", instance,
+                     "-p", profile, "-o", "json"], check=False)
+    if info and info.get("name"):
+        print(f"  {green('ok')} Lakebase instance {instance!r} exists "
+              f"(state: {info.get('state', '?')})")
+        return True
+    if not create:
+        print(f"  {yellow('Lakebase project not found')} and --no-create-lakebase set — "
+              f"provision {instance!r} first, then re-run.")
+        return False
+    if not confirm(f"Create Lakebase project {instance!r}?",
+                   assume_yes=assume_yes, default=True):
+        print(f"  {dim('skipped Lakebase project creation')}")
+        return False
+    print(f"  {dim(f'creating Lakebase project {instance!r} — this can take a few minutes...')}")
+    result = run(["databricks", "postgres", "create-project", instance,
+                  "-p", profile, "-o", "json"], capture=True, check=False)
+    if result.returncode == 0:
+        print(f"  {green('ok')} created Lakebase project {instance!r}")
+        return True
+    detail = (result.stderr or result.stdout or "").strip()
+    print(f"  {yellow('could not create the Lakebase project')} — your identity may lack "
+          f"permission to provision Lakebase in this workspace.")
+    if detail:
+        print(f"  {dim(detail[:600])}")
+    print(f"  {dim('Ask a workspace admin to create a Lakebase project named ')}"
+          f"{instance!r}{dim(', then re-run with --no-create-lakebase.')}")
+    return False
+
+
 def seed(profile: str, project: str, database: str, demo: bool) -> None:
     script = "seed_demo.py" if demo else "seed_clean.py"
     if not (HERE / script).exists():
@@ -556,6 +616,12 @@ def main() -> None:
     parser.add_argument("--lakebase-project", default=None)
     parser.add_argument("--lakebase-host", default=None,
                         help="Lakebase endpoint host (auto-detected if omitted)")
+    parser.add_argument("--no-create-lakebase", action="store_true",
+                        help="don't auto-create the Lakebase database instance if it is "
+                             "missing (default: create it). Use when the instance already "
+                             "exists or your identity can't provision Lakebase.")
+    parser.add_argument("--lakebase-capacity", default="CU_1",
+                        help="ignored (kept for compatibility); autoscaling projects size themselves")
     parser.add_argument("--pg-database", default=None)
     parser.add_argument("--demo-mode", choices=["on", "off"], default=None,
                         help="ship the removable Demo Mode toggle (default off)")
@@ -639,13 +705,27 @@ def main() -> None:
         "discovery": discovery,
     }
 
-    # Lakebase host: auto-detect so the operator doesn't have to look it up.
-    host = args.lakebase_host or cache.get("pghost", "")
+    # Lakebase instance: create it if missing so `bundle deploy` (which binds the App
+    # `database` resource to it) and the seed both have something to reach. This is the
+    # step that used to require a manual "provision the project first" out-of-band.
+    if not DRY_RUN:
+        ensure_lakebase_instance(profile, lakebase_project,
+                                 capacity=args.lakebase_capacity,
+                                 create=not args.no_create_lakebase,
+                                 assume_yes=args.yes)
+
+    # Lakebase host: auto-detect so the operator doesn't have to look it up. Always
+    # resolve live — a cached host from a previous install (another workspace or a
+    # recreated project) points the app at the wrong endpoint and fails token auth.
+    host = args.lakebase_host or ""
     if not host and not DRY_RUN:
         print(f"  {dim('resolving the Lakebase endpoint host...')}")
         host = lakebase_host(profile, lakebase_project) or ""
         if host:
             print(f"  {green('ok')} {host}")
+        elif cache.get("pghost"):
+            host = cache["pghost"]
+            print(f"  {yellow('could not auto-detect')} — falling back to cached {host}")
         else:
             print(f"  {yellow('could not auto-detect')} — provision the Lakebase "
                   f"project {lakebase_project!r} first (see INSTALL.md step 1).")
@@ -728,7 +808,7 @@ def main() -> None:
         print(f"  {dim('skipped (--skip-start)')}")
     else:
         run(["databricks", "bundle", "run", BUNDLE_RESOURCE, "-t", target,
-             "-p", profile], check=False)
+             "-p", profile, *bundle_vars(settings)], check=False)
 
     url = (app or {}).get("url") if isinstance(app, dict) else None
     print(f"\n{green(bold('Done.'))}")
