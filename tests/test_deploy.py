@@ -63,7 +63,7 @@ class TestSetYamlEnv(unittest.TestCase):
         """The failure this guards: a greedy pattern rewriting neighbouring keys."""
         out = deploy.set_yaml_env(self.original, "PGPORT", "5433")
         for other in ("PGHOST", "PGDATABASE", "SERVING_ENDPOINT", "ATLAS_CATALOG",
-                      "ATLAS_SCHEMA", "GENIE_MIRROR_SCHEMA", "DEMO_MODE"):
+                      "ATLAS_SCHEMA", "GENIE_MIRROR_SCHEMA", "RATE_LIMITS"):
             self.assertEqual(_env_value(out, other), _env_value(self.original, other),
                              f"{other} changed while setting PGPORT")
 
@@ -80,9 +80,9 @@ class TestSetYamlEnv(unittest.TestCase):
 
     def test_values_are_quoted(self):
         """An unquoted 'on'/'off'/'no' is a YAML boolean, not a string, and
-        DEMO_MODE would arrive as True."""
-        out = deploy.set_yaml_env(self.original, "DEMO_MODE", "off")
-        match = re.search(r"-\s*name:\s*DEMO_MODE\s*\n(?:\s*#[^\n]*\n)*\s*value:\s*(\S+)", out)
+        RATE_LIMITS would arrive as False."""
+        out = deploy.set_yaml_env(self.original, "RATE_LIMITS", "off")
+        match = re.search(r"-\s*name:\s*RATE_LIMITS\s*\n(?:\s*#[^\n]*\n)*\s*value:\s*(\S+)", out)
         self.assertEqual(match.group(1), '"off"')
 
     def test_unknown_key_leaves_text_unchanged(self):
@@ -142,7 +142,7 @@ class TestBundleVariableRewrite(unittest.TestCase):
         and the app would get the wrong value."""
         for key in ("atlas_catalog", "atlas_schema", "serving_endpoint",
                     "genie_mirror_catalog", "genie_mirror_schema",
-                    "lakebase_project", "demo_mode", "warehouse_id"):
+                    "lakebase_project", "app_name", "warehouse_id"):
             self.assertRegex(self.original, rf"\n  {key}:\n",
                              f"{key} is not declared in databricks.yml")
 
@@ -156,7 +156,7 @@ class TestSettingsParity(unittest.TestCase):
             text = fh.read()
         for name in ("PGHOST", "PGUSER", "PGDATABASE", "SERVING_ENDPOINT",
                      "ATLAS_CATALOG", "ATLAS_SCHEMA", "GENIE_MIRROR_CATALOG",
-                     "GENIE_MIRROR_SCHEMA", "GENIE_SPACE_ID", "DEMO_MODE"):
+                     "GENIE_MIRROR_SCHEMA", "GENIE_SPACE_ID"):
             self.assertIsNotNone(_env_value(text, name) if f"name: {name}" in text else None,
                                  f"{name} missing from app.yaml")
 
@@ -171,14 +171,15 @@ class TestSettingsParity(unittest.TestCase):
         match = re.search(r"sql_warehouse:\s*\n\s*id:\s*\"([^\"]*)\"", text)
         self.assertEqual(match.group(1), "", "a warehouse id is baked into app.yaml")
 
-    def test_demo_mode_ships_off(self):
-        """Demo Mode can reset a customer's portfolio; it must never ship enabled."""
-        with open(APP_YAML) as fh:
-            self.assertEqual(_env_value(fh.read(), "DEMO_MODE"), "off")
+    def test_app_name_is_one_bundle_variable(self):
+        """The app name, and the bundle root that holds its deploy state, both come from
+        var.app_name, so a second install with a new APP_NAME can't overwrite the first."""
         with open(BUNDLE_YAML) as fh:
-            match = re.search(
-                r"  demo_mode:\n(?:    [^\n]*\n)*?    default:\s*(\S+)", fh.read())
-        self.assertIn(match.group(1).strip("\"'"), ("off",))
+            text = fh.read()
+        self.assertRegex(text, r"\n  app_name:\n(?:    [^\n]*\n)*?    default:\s*grid-atlas\n")
+        self.assertIn("name: ${var.app_name}", text)
+        self.assertEqual(text.count("/.bundle/${var.app_name}/"), 2)
+        self.assertNotIn("/.bundle/grid-atlas/", text)
 
 
 class TestCliContract(unittest.TestCase):

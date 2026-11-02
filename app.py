@@ -123,12 +123,6 @@ for module in (lobs, data_assets, use_cases, dependencies, values, roadmap,
 app.include_router(domains.uc_router, prefix="/api")
 app.include_router(generate.confirm_router, prefix="/api")
 
-# --- Demo Mode (ISOLATED feature; gated behind DEMO_MODE env; see DEMO_MODE.md) ---
-# To remove before Marketplace: delete this block + server/routes/demo.py.
-from server.routes import demo as _demo  # noqa: E402
-app.include_router(_demo.router, prefix="/api")
-
-
 @app.get("/api/health")
 async def health():
     pool = await db.get_pool()

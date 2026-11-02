@@ -227,7 +227,7 @@ def write_config(settings: dict) -> None:
         ("ATLAS_CATALOG", "atlas_catalog"), ("ATLAS_SCHEMA", "atlas_schema"),
         ("GENIE_MIRROR_CATALOG", "genie_mirror_catalog"),
         ("GENIE_MIRROR_SCHEMA", "genie_mirror_schema"),
-        ("GENIE_SPACE_ID", "genie_space_id"), ("DEMO_MODE", "demo_mode"),
+        ("GENIE_SPACE_ID", "genie_space_id"),
     ):
         if settings.get(key) is not None:
             text = set_yaml_env(text, name, str(settings[key]))
@@ -246,8 +246,7 @@ def write_config(settings: dict) -> None:
     for key, value in (("serving_endpoint", settings["serving_endpoint"]),
                        ("genie_mirror_catalog", settings["genie_mirror_catalog"]),
                        ("genie_mirror_schema", settings["genie_mirror_schema"]),
-                       ("lakebase_project", settings["lakebase_project"]),
-                       ("demo_mode", settings["demo_mode"])):
+                       ("lakebase_project", settings["lakebase_project"])):
         # Each variable's `default:` is nested under its own key, so anchor on the
         # variable name and replace the default line that follows it.
         btext = re.sub(
@@ -293,7 +292,7 @@ def bundle_vars(settings: dict) -> list[str]:
     `bundle run` fails with "no value assigned to required variable warehouse_id"."""
     keys = ("warehouse_id", "atlas_catalog", "atlas_schema", "serving_endpoint",
             "genie_mirror_catalog", "genie_mirror_schema", "lakebase_project",
-            "pg_database", "demo_mode")
+            "pg_database", "app_name")
     return [f"--var={k}={settings[k]}" for k in keys]
 
 
@@ -623,8 +622,9 @@ def main() -> None:
     parser.add_argument("--lakebase-capacity", default="CU_1",
                         help="ignored (kept for compatibility); autoscaling projects size themselves")
     parser.add_argument("--pg-database", default=None)
-    parser.add_argument("--demo-mode", choices=["on", "off"], default=None,
-                        help="ship the removable Demo Mode toggle (default off)")
+    parser.add_argument("--app-name", default=None,
+                        help=f"Databricks App name (default {APP_NAME}); set a different "
+                             "name to install a second copy in the same workspace")
     parser.add_argument("--discovery", choices=["on", "off"], default=None,
                         help="live UC discovery (default on). 'off' = portfolio-only easy "
                              "install: skips the account-admin `system.access` grant; feed "
@@ -684,7 +684,8 @@ def main() -> None:
     lakebase_project = value("lakebase_project", "lakebase_project",
                              "Lakebase project id", "grid-atlas-db")
     pg_database = value("pg_database", "pg_database", "Lakebase database", "app")
-    demo_mode = args.demo_mode or cache.get("demo_mode", "off")
+    app_name = (args.app_name or os.environ.get("APP_NAME")
+                or cache.get("app_name") or APP_NAME)
     discovery = args.discovery or cache.get("discovery", "on")
     if discovery == "off":
         # Portfolio-only easy install: no discovery-inventory catalog, so run_grants
@@ -701,7 +702,7 @@ def main() -> None:
         "genie_mirror_schema": genie_mirror_schema,
         "lakebase_project": lakebase_project, "pg_database": pg_database,
         "genie_space_id": cache.get("genie_space_id", ""),
-        "demo_mode": demo_mode,
+        "app_name": app_name,
         "discovery": discovery,
     }
 
@@ -753,9 +754,9 @@ def main() -> None:
 
     # -- 6. grants --
     step(6, total, "Service principal + Unity Catalog grants")
-    # The bundle always names the app APP_NAME ("grid-atlas") regardless of target,
-    # so resolve it by that name on every target (the old dev-suffix guess never matched).
-    app_name = APP_NAME
+    # The bundle names the app ${var.app_name} on every target (default APP_NAME),
+    # so resolve it by that name (the old dev-suffix guess never matched).
+    app_name = settings["app_name"]
     app = resolve_app(profile, app_name) if not DRY_RUN else {"name": app_name}
     if app is None:
         print(f"  {yellow('could not read the app')} — is it named {app_name!r}?")

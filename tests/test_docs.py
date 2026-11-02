@@ -22,7 +22,7 @@ import stubs  # noqa: E402,F401
 
 ROOT = Path(__file__).parent.parent
 DOCS = ["README.md", "ARCHITECTURE.md", "INSTALL.md", "OPERATIONS.md",
-        "DEMO_MODE.md", "DELTA_SHARING.md"]
+        "DELTA_SHARING.md"]
 
 
 def doc_text(name: str) -> str:

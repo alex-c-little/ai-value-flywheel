@@ -255,7 +255,7 @@ wrong:
 │   └── console/                # Operator console (plain HTML/JS, no build)
 ├── tests/                      # stdlib-only test suite + a local dev server
 ├── .github/workflows/ci.yml    # Calls scripts/check.py — no logic of its own
-└── ARCHITECTURE.md · INSTALL.md · DEMO_MODE.md · DELTA_SHARING.md · LICENSE.md
+└── ARCHITECTURE.md · INSTALL.md · EASY_INSTALL.md · DELTA_SHARING.md · LICENSE.md
 ```
 
 ---
@@ -305,14 +305,12 @@ with empty values.
 | `ATLAS_CATALOG` / `ATLAS_SCHEMA` | Where the discovery layer writes. Blank disables discovery. | discovery |
 | `GENIE_SPACE_ID` | Genie space over the portfolio mirror. | Genie |
 | `GENIE_MIRROR_CATALOG` / `GENIE_MIRROR_SCHEMA` | UC target for the mirror. | Genie |
-| `DEMO_MODE` | Header toggle + `/api/demo/*`. **Ship `off`** — it can reset the portfolio. | no |
 | `LOG_LEVEL` | `INFO` normally; `DEBUG` raises detail on a running app with no redeploy. | no |
 | `RATE_LIMITS` | `on` by default. Set `off` for a demo where clicking fast is deliberate. | no |
 | `DATABRICKS_PROFILE` | **Local development only.** The CLI profile used when not running inside Databricks Apps, where the service principal is injected instead. | local |
 
 `app.yaml` shipping empty is enforced by a test, not a convention — it has caught
-a real regression where a Lakebase host, a service-principal id, and `DEMO_MODE=on`
-were committed.
+a real regression where a Lakebase host and a service-principal id were committed.
 
 ---
 
@@ -368,7 +366,6 @@ python3 tests/serve_local.py --port 8000       # then open /console
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Layer-by-layer architecture, data flow, security posture. |
 | [`schema-extractor/README.md`](schema-extractor/README.md) | The multi-workspace metadata sweep. |
 | [`tests/README.md`](tests/README.md) | Test suite map and testing approach. |
-| [`DEMO_MODE.md`](DEMO_MODE.md) | The isolated, removable Demo Mode feature. |
 | [`DELTA_SHARING.md`](DELTA_SHARING.md) | Reference-library IP and distribution model. |
 | [`LICENSE.md`](LICENSE.md) | License and terms. |
 

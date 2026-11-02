@@ -19,6 +19,9 @@ bundle:
   name: grid-atlas
 
 variables:
+  app_name:
+    description: "Databricks App name. Change it to install a second copy in the same workspace."
+    default: grid-atlas
   warehouse_id:
     description: "SQL warehouse ID for system-table reads, UC discovery, and ai_query() enrichment (app SP gets CAN_USE)."
   serving_endpoint:
@@ -45,14 +48,11 @@ variables:
   pg_database:
     description: "Database inside the Lakebase project."
     default: app
-  demo_mode:
-    description: "Enables the removable Demo Mode toggle + /api/demo/* endpoints. Ship 'off' to customers."
-    default: off
 
 resources:
   apps:
     grid_atlas:
-      name: grid-atlas
+      name: ${var.app_name}
       description: "Power & Utilities data + AI catalog: workspace discovery, use-case portfolio, value quantification, and dependency-sequenced roadmap."
       source_code_path: ./
       resources:
@@ -85,8 +85,8 @@ targets:
     mode: development
     default: true
     workspace:
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/grid-atlas/dev
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${var.app_name}/dev
   prod:
     mode: production
     workspace:
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/grid-atlas/prod
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${var.app_name}/prod

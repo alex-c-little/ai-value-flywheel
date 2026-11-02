@@ -6,6 +6,24 @@ admin**. The portfolio ships with 240 reference use cases, so the app is fully u
 day one; you can feed the customer's real estate later via the human-run extractor +
 Excel import.
 
+## Before you start
+
+- **Databricks CLI ≥ 0.239**, authenticated to the target workspace
+  (`databricks auth login --host <workspace-url> --profile <cli-profile>`).
+- **Python 3.10+** on the machine running the install. No Node/npm needed: the app
+  serves the committed `frontend/dist/` bundle.
+- **Lakebase** enabled in the workspace, and an identity that can create a Lakebase
+  project (see below).
+- A **SQL warehouse** id, and a **catalog** where the app's service principal may own one
+  schema (`GENIE_MIRROR_CATALOG`).
+
+Clone the repo and run everything from its root:
+
+```bash
+git clone <this-repo-url> ai-value-flywheel
+cd ai-value-flywheel
+```
+
 ## One command
 
 ```bash
@@ -16,7 +34,22 @@ GENIE_MIRROR_CATALOG=<catalog-the-app-may-own-a-schema-in> \
 ```
 
 This runs `scripts/deploy.py --target prod --discovery off …`, then issues the explicit
-`databricks apps deploy grid-atlas` that the bundle step alone does not always create.
+`databricks apps deploy <APP_NAME>` that the bundle step alone does not always create.
+
+When it finishes, open the app URL it prints and go to **Setup**: every required check
+should be green (Discovery shows as not configured, which is expected).
+
+### Optional settings
+
+| Variable | Default | Change it when |
+|---|---|---|
+| `APP_NAME` | `grid-atlas` | The workspace already has an app with that name |
+| `LAKEBASE_PROJECT` | `grid-atlas-db` | You want a different Lakebase project, or a second copy |
+| `GENIE_MIRROR_SCHEMA` | `grid_atlas` | You want a different schema name, or a second copy |
+| `SERVING_ENDPOINT` | `databricks-claude-sonnet-5` | Your workspace uses a different Foundation Model endpoint |
+
+To install a **second copy in the same workspace**, set all three of `APP_NAME`,
+`LAKEBASE_PROJECT` and `GENIE_MIRROR_SCHEMA` to new values.
 
 ## Lakebase is auto-created (no manual provisioning step)
 
@@ -51,9 +84,9 @@ a catalog admin) needs to allow these. None require an *account* admin:
 ```sql
 -- The app's OWN schema (for the optional Genie-assistant mirror). Least privilege.
 GRANT USE CATALOG, CREATE SCHEMA ON CATALOG `<GENIE_MIRROR_CATALOG>` TO `<app-sp>`;
-CREATE SCHEMA IF NOT EXISTS `<GENIE_MIRROR_CATALOG>`.`grid_atlas`;
+CREATE SCHEMA IF NOT EXISTS `<GENIE_MIRROR_CATALOG>`.`<GENIE_MIRROR_SCHEMA>`;  -- default grid_atlas
 GRANT USE SCHEMA, SELECT, MODIFY, CREATE TABLE
-  ON SCHEMA `<GENIE_MIRROR_CATALOG>`.`grid_atlas` TO `<app-sp>`;
+  ON SCHEMA `<GENIE_MIRROR_CATALOG>`.`<GENIE_MIRROR_SCHEMA>` TO `<app-sp>`;
 ```
 
 Plus, handled automatically by the bundle / deploy script:

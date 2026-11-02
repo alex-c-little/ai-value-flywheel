@@ -55,11 +55,6 @@ env:
   - name: GENIE_MIRROR_SCHEMA
     value: "grid_atlas"
 
-  # Demo Mode toggle (ISOLATED, removable feature — see DEMO_MODE.md).
-  # Ship OFF for customer / Marketplace installs.
-  - name: DEMO_MODE
-    value: "off"
-
   # Log level. INFO is right for normal operation; DEBUG turns up detail on a
   # deployed app without a code change or redeploy.
   - name: LOG_LEVEL
